@@ -1,6 +1,57 @@
 import { create, of, fromEvent, fromPromise } from "observable";
 import { toAsyncArray } from "./helpers";
 
+test("terminal teardown", async () => {
+  let teardownCount = 0;
+  const increment = () => {
+    teardownCount++;
+  };
+  const emptyObservable = create((observer) => {
+    observer.complete();
+    return increment;
+  });
+  expect(await toAsyncArray(emptyObservable)).toEqual([]);
+  expect(teardownCount).toBe(1);
+  expect(await toAsyncArray(emptyObservable)).toEqual([]);
+  expect(teardownCount).toBe(2);
+
+  const neverObservable = create((observer) => {
+    // do nothing with observer!
+    return increment;
+  });
+  const sub = neverObservable.subscribe({});
+  expect(teardownCount).toBe(2); // still 2
+  sub.unsubscribe();
+  expect(teardownCount).toBe(3); // becomes 3
+
+  sub.unsubscribe();
+  expect(teardownCount).toBe(3); // still 3
+
+  const overeagerObservable = create((observer) => {
+    observer.next(1);
+    observer.complete();
+    observer.next(2);
+    observer.error(new Error("wow i really want to error"));
+    return increment;
+  });
+  expect(await toAsyncArray(overeagerObservable)).toEqual([1]);
+  expect(teardownCount).toBe(4);
+
+  const expectedError = new Error("Oh shit!");
+  const errorObsservable = create((observer) => {
+    observer.error(expectedError);
+    return increment;
+  });
+  return toAsyncArray(errorObsservable)
+    .then(() => {
+      expect(true).toBe(false); // Should never happen!
+    })
+    .catch((error) => {
+      expect(error).toEqual({ error: expectedError, results: [] });
+      expect(teardownCount).toBe(5);
+    });
+});
+
 test("lazy construction", async () => {
   let constructionCount = 0;
   const observableWithEffect = create((observer) => {

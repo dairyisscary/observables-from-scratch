@@ -19,21 +19,45 @@ export type Observable<T> = {
   subscribe: (callbacks: Partial<Observer<T>>) => Subscription;
 };
 
-const NOOP = () => {};
-
 export function create<T>(registerFn: RegistrationFunction<T>): Observable<T> {
   return {
     subscribe: (callbacks) => {
-      const registeredDestructor = registerFn({
-        next: callbacks.next || NOOP,
-        error: callbacks.error || NOOP,
-        complete: callbacks.complete || NOOP,
-      });
+      let registeredDestructor: ReturnType<typeof registerFn>;
+      let open = true;
+
       const unsubscribe = () => {
+        open = false;
         if (typeof registeredDestructor === "function") {
           registeredDestructor();
+          registeredDestructor = undefined;
         }
       };
+
+      registeredDestructor = registerFn({
+        next: (value) => {
+          if (open && callbacks.next) {
+            callbacks.next(value);
+          }
+        },
+        error: (error) => {
+          if (open && callbacks.error) {
+            callbacks.error(error);
+            unsubscribe();
+          }
+        },
+        complete: () => {
+          if (open && callbacks.complete) {
+            callbacks.complete();
+            unsubscribe();
+          }
+        },
+      });
+
+      if (!open) {
+        // If error/complete were called during registration, we must try again for the destructor
+        unsubscribe();
+      }
+
       return { unsubscribe };
     },
   };
