@@ -1,3 +1,5 @@
+import type { OperatorFunction } from "./operators";
+
 type EventEmitter<E> = {
   addEventListener: (eventName: string, callback: (event: E) => void) => void;
   removeEventListener: (eventName: string, callback: (event: E) => void) => void;
@@ -17,10 +19,15 @@ type Subscription = {
 
 export type Observable<T> = {
   subscribe: (callbacks: Partial<Observer<T>>) => Subscription;
+  pipe: <B>(...operations: OperatorFunction<any, any>[]) => Observable<B>;
 };
 
 export function create<T>(registerFn: RegistrationFunction<T>): Observable<T> {
-  return {
+  const observable: Observable<T> = {
+    pipe: <B>(...operations: OperatorFunction<any, any>[]) => {
+      const result = operations.reduce((accum, operation) => operation(accum), observable);
+      return (result as any) as Observable<B>;
+    },
     subscribe: (callbacks) => {
       let registeredDestructor: ReturnType<typeof registerFn>;
       let open = true;
@@ -61,6 +68,7 @@ export function create<T>(registerFn: RegistrationFunction<T>): Observable<T> {
       return { unsubscribe };
     },
   };
+  return observable;
 }
 
 export function of<T>(...values: T[]): Observable<T> {
